@@ -7,7 +7,7 @@ const items = [
   { name: "Dashboard", href: "/dashboard", logo: "pie.svg" },
   { name: "Messages", href: "/messages", logo: "globe.svg" },
   { name: "Files", href: "/files", logo: "file.svg" },
-  { name: "Logout", href: "/logout", logo: "logout.svg" },
+  { name: "Logout", href: "/auth", logo: "logout.svg" },
 ];
 
 const Drawer = () => {
@@ -101,8 +101,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-black text-white">
-        <Drawer />
+      <body className="antialiased bg-zinc-900 text-white">
+      {window.location.pathname !== '/auth' && <Drawer />}
         <main className="pt-16">{children}</main>
       </body>
     </html>

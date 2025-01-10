@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from "react";
 
 interface Message {
-  text: string;
-  sender: string;
+  sender: number;
+  message: string;
+  timestamp: string;
 }
 
 interface Contact {
@@ -12,7 +13,7 @@ interface Contact {
   gender: string;
   role: string;
 }
-interface Group{
+interface Group {
   id: number;
   name: string;
 }
@@ -26,80 +27,98 @@ const MessagesPage: React.FC = () => {
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [view, setView] = useState<"contacts" | "groups">("contacts");
 
-  const [messages, setMessages] = useState<{
-    [key: string]: Message[];
-  }>({
-    Alice: [
-      { text: "Hi Alice!", sender: "me" },
-      { text: "How are you?", sender: "Alice" },
-      { text: "I'm good, thanks!", sender: "me" },
-      { text: "What about you?", sender: "Alice" },
+  let [messages, setMessages] = useState<{ [key: string]: Message[] }>({
+    "john_doe": [
+      { sender: 2, message: "Hello!", timestamp: "2023-10-01T10:00:00Z" },
+      { sender: 1, message: "Hi there!", timestamp: "2023-10-01T10:01:00Z" },
     ],
-    Bob: [
-      { text: "Hey Bob!", sender: "me" },
-      { text: "What's up?", sender: "Bob" },
-      { text: "Not much, just working.", sender: "me" },
-      { text: "Cool, let's catch up later.", sender: "Bob" },
-    ],
-    Charlie: [
-      { text: "Hello Charlie!", sender: "me" },
-      { text: "Long time no see!", sender: "Charlie" },
-      { text: "Yeah, it's been a while.", sender: "me" },
-      { text: "We should meet up soon.", sender: "Charlie" },
-    ],
-    Group1: [
-      { text: "Hello Group1!", sender: "me" },
-      { text: "Welcome to the group chat.", sender: "Group1" },
-    ],
-    Group2: [
-      { text: "Hello Group2!", sender: "me" },
-      { text: "This is a group message.", sender: "Group2" },
+    "group_1": [
+      { sender: 3, message: "Welcome to the group!", timestamp: "2023-10-01T10:05:00Z" },
+      { sender: 1, message: "Thank you!", timestamp: "2023-10-01T10:06:00Z" },
     ],
   });
+  const [socket, setSocket] = useState<WebSocket | null>(null);
 
   useEffect(() => {
-    const fetchContacts = async () => {
-      try {
-        const response = await fetch(`https://localhost:443/users/${user_id}/department-users/`, {
-          method: "GET",
-        });
-        const data = await response.json();
-        setContacts(data.users);
-      } catch (error) {
-        console.error("Error fetching contacts:", error);
-      }
+    const ws = new WebSocket("wss://localhost:443/ws/chat/2/1/");
+
+    ws.onopen = () => {
+      console.log("WebSocket connection established");
     };
 
-    fetchContacts();
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      let msgs = data.messages;
+      console.log("Messages        ", data.messages);
+      setMessages(data.messages);
+      console.log("Messages:", msgs);
+      setMessages(msgs);
+      console.log("Messages:", messages);
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket connection closed");
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+    };
+
+    setSocket(ws);
+
+    return () => {
+      ws.close();
+    };
   }, []);
 
   useEffect(() => {
-    const fetchContacts = async () => {
+    const fetchData = async () => {
       try {
-        const response = await fetch(`https://localhost:443/users/${user_id}/groups/`, {
-          method: "GET",
-        });
-        const data = await response.json();
-        setGroups(data.groups);
+        const [contactsRes, groupsRes] = await Promise.all([
+          fetch(`https://localhost:443/users/${user_id}/department-users/`),
+          fetch(`https://localhost:443/users/${user_id}/groups/`),
+        ]);
+
+        const contactsData = await contactsRes.json();
+        const groupsData = await groupsRes.json();
+
+        setContacts(contactsData.users);
+        setGroups(groupsData.groups);
       } catch (error) {
-        console.error("Error fetching contacts:", error);
+        console.error("Error fetching data:", error);
       }
     };
 
-    fetchContacts();
+    fetchData();
   }, []);
 
   const addMessage = (newMessage: Message) => {
     if (selectedContact) {
       setMessages((prevMessages) => ({
         ...prevMessages,
-        [selectedContact.username]: [...prevMessages[selectedContact.username], newMessage],
+        [selectedContact.username]: [
+          ...(prevMessages[selectedContact.username as keyof typeof prevMessages] || []),
+          newMessage,
+        ],
       }));
+
+      // Send message to server
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(newMessage.message);
+      }
     } else if (selectedGroup) {
       setMessages((prevMessages) => ({
         ...prevMessages,
-        [selectedGroup.name]: [...prevMessages[selectedGroup.name], newMessage],
+        [selectedGroup.name]: [
+          ...(prevMessages[selectedGroup.name as keyof typeof prevMessages] || []),
+          newMessage,
+        ],
       }));
+
+      // Send message to server
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(newMessage.message);
+      }
     }
   };
 
@@ -176,22 +195,13 @@ const MessagesPage: React.FC = () => {
             ? selectedGroup.name
             : "Messages"}
         </h2>
-        {selectedContact || selectedGroup ? (
+        {selectedContact ? (
           <div className="flex flex-col flex-grow">
             <ul className="flex flex-col text-white flex-grow overflow-y-auto">
-              {(selectedContact
-                ? messages[selectedContact.username]
-                : messages[selectedGroup!.name]
-              ).map((msg, index) => (
-                <li
-                  key={index}
-                  className={`my-2 p-2 rounded-md inline-block max-w-xs break-words ${
-                    msg.sender === user_id.toString()
-                      ? "text-right bg-zinc-700 self-end"
-                      : "text-left bg-yellow-600 self-start"
-                  }`}
-                >
-                  {msg.text}
+              {(selectedContact ? messages[selectedContact.username as keyof typeof messages] : selectedGroup ? messages[selectedGroup.name as keyof typeof messages] : [])?.map((msg: Message, index: number) => (
+                <li key={index} className="my-2 p-2 rounded-md bg-yellow-600">
+                  <p><strong>{msg.sender}:</strong> {msg.message}</p>
+                  <p className="text-sm">{new Date(msg.timestamp).toLocaleString()}</p>
                 </li>
               ))}
             </ul>
@@ -205,7 +215,11 @@ const MessagesPage: React.FC = () => {
                     e.key === "Enter" &&
                     e.currentTarget.value.trim() !== ""
                   ) {
-                    addMessage({ text: e.currentTarget.value, sender: user_id.toString() });
+                    addMessage({
+                      message: e.currentTarget.value,
+                      sender: user_id,
+                      timestamp: new Date().toISOString(),
+                    });
                     e.currentTarget.value = "";
                   }
                 }}
@@ -217,7 +231,11 @@ const MessagesPage: React.FC = () => {
                     'input[type="text"]'
                   ) as HTMLInputElement;
                   if (input.value.trim() !== "") {
-                    addMessage({ text: input.value, sender: user_id.toString() });
+                    addMessage({
+                      message: input.value,
+                      sender: user_id,
+                      timestamp: new Date().toISOString(),
+                    });
                     input.value = "";
                   }
                 }}
